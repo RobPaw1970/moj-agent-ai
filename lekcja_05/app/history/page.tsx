@@ -46,10 +46,26 @@ export default function HistoryPage() {
   async function loadConversations() {
     setIsLoading(true);
     setError("");
-    const [conversationResult, messageResult] = await Promise.all([
-      supabase.from("conversations").select("id, title, created_at, updated_at").order("updated_at", { ascending: false }),
-      supabase.from("messages").select("id, conversation_id, content, created_at").order("created_at", { ascending: true }),
-    ]);
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) {
+      setIsLoading(false);
+      return;
+    }
+
+    const conversationResult = await supabase
+      .from("conversations")
+      .select("id, title, created_at, updated_at")
+      .eq("user_id", authData.user.id)
+      .order("updated_at", { ascending: false });
+
+    const conversationIds = (conversationResult.data ?? []).map((conversation) => conversation.id);
+    const messageResult = conversationIds.length > 0
+      ? await supabase
+          .from("messages")
+          .select("id, conversation_id, content, created_at")
+          .in("conversation_id", conversationIds)
+          .order("created_at", { ascending: true })
+      : { data: [], error: null };
 
     if (conversationResult.error || messageResult.error) {
       setError("Nie udało się pobrać historii rozmów.");
@@ -89,10 +105,12 @@ export default function HistoryPage() {
     const confirmed = window.confirm("Czy na pewno chcesz usunąć tę rozmowę? Tej operacji nie można cofnąć.");
     if (!confirmed) return;
 
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return;
     const { error: messagesError } = await supabase.from("messages").delete().eq("conversation_id", id);
     const { error: conversationError } = messagesError
       ? { error: messagesError }
-      : await supabase.from("conversations").delete().eq("id", id);
+      : await supabase.from("conversations").delete().eq("id", id).eq("user_id", authData.user.id);
 
     if (messagesError || conversationError) {
       setError("Nie udało się usunąć rozmowy.");

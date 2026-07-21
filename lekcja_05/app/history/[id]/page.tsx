@@ -17,10 +17,17 @@ export default function ConversationPreviewPage() {
   useEffect(() => {
     let cancelled = false;
     async function loadConversation() {
-      const [conversationResult, messageResult] = await Promise.all([
-        supabase.from("conversations").select("id, title, created_at, updated_at").eq("id", params.id).maybeSingle(),
-        supabase.from("messages").select("id, role, content, created_at").eq("conversation_id", params.id).order("created_at", { ascending: true }),
-      ]);
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return;
+      const conversationResult = await supabase
+        .from("conversations")
+        .select("id, title, created_at, updated_at")
+        .eq("id", params.id)
+        .eq("user_id", authData.user.id)
+        .maybeSingle();
+      const messageResult = conversationResult.data
+        ? await supabase.from("messages").select("id, role, content, created_at").eq("conversation_id", params.id).order("created_at", { ascending: true })
+        : { data: [], error: null };
       if (cancelled) return;
       if (conversationResult.error || messageResult.error || !conversationResult.data) {
         setError("Nie znaleziono rozmowy lub nie udało się jej pobrać.");

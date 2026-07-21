@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthGuard } from "../components/auth-guard";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pl">
-      <body>{children}</body>
+      <body><AuthGuard>{children}</AuthGuard></body>
     </html>
   );
 }

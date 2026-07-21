@@ -38,6 +38,7 @@ export default function Home() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [, refreshModeBadges] = useState(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -68,16 +69,18 @@ export default function Home() {
     let cancelled = false;
 
     async function loadUserProfile() {
-      let userId = localStorage.getItem("user_id");
-      if (!userId) {
-        userId = crypto.randomUUID();
-        localStorage.setItem("user_id", userId);
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const authenticatedUserId = authData.user?.id;
+      if (authError || !authenticatedUserId) {
+        if (!cancelled) setIsProfileLoading(false);
+        return;
       }
+      setUserId(authenticatedUserId);
 
       const { data: existingProfile, error: selectError } = await supabase
         .from("user_profiles")
         .select("id, name, preferences")
-        .eq("id", userId)
+        .eq("id", authenticatedUserId)
         .maybeSingle();
 
       if (cancelled) return;
@@ -99,7 +102,7 @@ export default function Home() {
 
       const { data: createdProfile, error: insertError } = await supabase
         .from("user_profiles")
-        .insert({ id: userId, preferences: {} })
+        .insert({ id: authenticatedUserId, preferences: {} })
         .select("id, name, preferences")
         .single();
 
@@ -126,8 +129,9 @@ export default function Home() {
     let cancelled = false;
 
     async function loadLatestConversation() {
+      if (!userId) return;
       const requestedConversationId = new URLSearchParams(window.location.search).get("conversation");
-      const conversationQuery = supabase.from("conversations").select("id");
+      const conversationQuery = supabase.from("conversations").select("id").eq("user_id", userId);
       const { data: conversation, error: conversationError } = requestedConversationId
         ? await conversationQuery.eq("id", requestedConversationId).maybeSingle()
         : await conversationQuery.order("updated_at", { ascending: false }).limit(1).maybeSingle();
@@ -173,9 +177,10 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [setMessages]);
+  }, [setMessages, userId]);
 
   async function ensureConversation(firstMessage?: string) {
+    if (!userId) return null;
     if (conversationIdRef.current) {
       if (firstMessage && needsTitleRef.current) {
         needsTitleRef.current = false;
@@ -185,7 +190,8 @@ export default function Home() {
             title: createConversationTitle(firstMessage),
             updated_at: new Date().toISOString(),
           })
-          .eq("id", conversationIdRef.current);
+          .eq("id", conversationIdRef.current)
+          .eq("user_id", userId);
       }
       return conversationIdRef.current;
     }
@@ -200,7 +206,8 @@ export default function Home() {
             title: createConversationTitle(firstMessage),
             updated_at: new Date().toISOString(),
           })
-          .eq("id", pendingConversationId);
+          .eq("id", pendingConversationId)
+          .eq("user_id", userId);
       }
       return pendingConversationId;
     }
@@ -210,7 +217,7 @@ export default function Home() {
       conversationPromiseRef.current = (async () => {
         const { data, error: insertError } = await supabase
           .from("conversations")
-          .insert({ title })
+          .insert({ title, user_id: userId })
           .select("id")
           .single();
 
@@ -257,14 +264,15 @@ export default function Home() {
           const { error: updateError } = await supabase
             .from("conversations")
             .update({ updated_at: new Date().toISOString() })
-            .eq("id", conversationId);
+            .eq("id", conversationId)
+            .eq("user_id", userId);
           if (updateError) console.error("Nie udało się zaktualizować rozmowy:", updateError);
         } finally {
           savingMessageIdsRef.current.delete(message.id);
         }
       })();
     }
-  }, [conversationId, isHistoryLoading, messages, status]);
+  }, [conversationId, isHistoryLoading, messages, status, userId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
